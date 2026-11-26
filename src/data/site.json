@@ -1,7 +1,7 @@
 {
   "note": "Spa facts for the site. Owner-confirmable items carry a [CONFIRM] note in _confirm. Prices never live here (see services.json + square-lock.json).",
   "name": "Unique Spa House",
-  "launch": false,
+  "launch": true,
   "_launch": "THE launch switch (one line, in the launch PR). false = staging: canonical = the staging host (urls.staging, or env STAGING_URL for a private staging server), every page noindex, robots.txt disallows all, no sitemap.xml, X-Robots-Tag noindex. true = live: canonical https://uniquespahouse.com, pages indexable, production robots.txt + sitemap.xml; *.pages.dev previews stay noindex. Env LAUNCH=1/0 overrides for a test build; PREVIEW=1 always builds staging.",
   "urls": {
     "staging": "https://unique-spa-house.pages.dev",
@@ -67,12 +67,24 @@
         "display": "(858) 293-8900",
         "tel": "tel:+18582938900"
       },
-      "hours_text": "Call for today's hours",
-      "hours": null,
+      "hours_text": "Mon–Sun 9 AM–7 PM",
+      "hours": {
+        "days": [
+          "Mo",
+          "Tu",
+          "We",
+          "Th",
+          "Fr",
+          "Sa",
+          "Su"
+        ],
+        "opens": "09:00",
+        "closes": "19:00"
+      },
       "page": "/locations/del-mar",
       "directions_url": "https://www.google.com/maps/dir/?api=1&destination=15770%20San%20Andres%20Drive%2C%20Del%20Mar%2C%20CA%2092014",
       "review_url": null,
-      "_confirm": "Hours unknown (B3) → 'Call for today's hours', no openingHours schema, Call dials directly. Own phone (O-B1), suite and Google profile unknown."
+      "_confirm": "Hours Mon–Sun 9 AM–7 PM, holiday hours the same: Katy, 25 Nov 2026 (via Ian). Own phone (O-B1), suite and Google profile unknown."
     }
   },
   "social": {
@@ -93,7 +105,7 @@
     "starts": null,
     "ends": null,
     "c_send_days": null,
-    "c_promo_valid": null,
+    "c_promo_valid": "for 6 months from the day we email it",
     "c_limits": null,
     "_note": "Katy's holiday gift card choice (gift kit decision 1, APPROVALS Q50). option: \"A\" = no offer (default; cards at menu prices, nothing shows). \"B\" = $25 off a $225 eGift card (pay $200). \"C\" = a $25 promo card for buyers who spend $200+. Setting B or C IS the approval: do it only after the Square set-up, one test purchase and the lawyer check. B and C need starts and ends (YYYY-MM-DD, Los Angeles dates, inclusive; a real end date, never extended after posting). C also needs c_send_days (a number, e.g. 7), c_promo_valid (the words after 'Promo card valid', e.g. \"January 4 to February 28, 2027\") and c_limits (one full sentence, e.g. \"One per buyer.\", or \"\" for none); the lawyer checks that line. A production build fails while a required field is missing; PREVIEW shows [brackets]. Env GIFT_OFFER / GIFT_STARTS / GIFT_ENDS override for test builds. The gift page, the home offers band, the policies gift card section and the $225 tile badge all follow this one field. Wording lives in offers.json \"holiday-egift-2026\".options."
   },

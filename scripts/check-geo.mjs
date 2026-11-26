@@ -53,7 +53,7 @@ const NAME_TO_FACTS = {
   'Massage with Katy, owner': ['katy-any-massage'], 'Brazilian butt massage': ['brazilian-butt'], 'Liposuction massage': ['liposuction-massage'],
   'BABOR Sculpt & Lift ritual': ['babor-sculpt-lift'], 'BABOR Deep Cleanse & Glow ritual': ['babor-deep-cleanse-glow'],
   'Signature custom facial': ['signature-custom-facial'], 'Pure Cleanse and Rebalance facial': ['pure-cleanse-rebalance'],
-  'Deep express hydration': ['deep-express-hydration'], 'Sculpture face massage': ['ciocco-sculpture-face-massage'],
+  'Deep express hydration': ['deep-express-hydration'], 'Hydro facial (Glass Skin Glow by Glacē)': ['hydro-facial'], 'Sculpture face massage': ['ciocco-sculpture-face-massage'],
   'Face massage sculpture and lifting': ['face-massage-sculpture-lifting'], 'Wrap Me Up body wrap': ['wrap-me-up', 'wrap-me-up-massage'],
   'Add-on, hot stones or cupping on any massage': ['addon-hot-stones-cupping'],
 };
@@ -66,7 +66,9 @@ function factsOptions() {
   if (facts) {
     return facts.services.flatMap((s) => s.options.map((o) => ({
       fid: s.id, minutes: o.minutes ?? null, price: o.price ?? null,
-      variable: !!(o.price_from || /varies/i.test(o.price_note || '')), locs: new Set(o.locations),
+      // No price in facts (e.g. Signature custom facial: "price set at your visit", Katy 10 Nov 2026) is variable too,
+      // the same rule as the services.json fallback below.
+      variable: !!(o.price_from || o.price == null || /varies/i.test(o.price_note || '')), locs: new Set(o.locations),
     })));
   }
   // fallback: services.json under the facts ids (only the services this test maps)
@@ -108,7 +110,8 @@ function matchFacts(name, label, price, spas) {
 // ---------------------------------------------------------------- wording rules
 const BANNED_COMMERCE = /\bfree\b|\bvalue[sd]?\b|\bsav(?:e|es|ed|ing|ings)\b|regular price|\breg\.|\bwas \$|valued at|complimentary/i;
 const CLAIMS = /\b(cures?|heal(?:s|ing)?|detox\w*|lose weight|weight[- ]?loss|burns? fat|fat[- ]loss|slimm\w*|inch(?:es)? loss|reduc\w* (?:swelling|cellulite|fat|inflammation|bloating|water retention|puffiness)|boosts? (?:your )?immun\w*|immune system|flush\w* (?:out )?toxins|toxins|guarantee\w*|clinically|proven|lymphedema|lipedema|post-?op\w*|treats? (?:pain|injur\w*|conditions?)|pain relief|relieves? pain|anti-?aging results|medical[- ]grade)\b/i;
-const HOLD = /hydro ?facial|glass skin glow|glac[eē]|buccal|\bLPG\b|endermolog/i;
+// Hydro facial (Glass Skin Glow by Glacē) left this list 25 Nov 2026: hold lifted by owner decision (Ian); on Katy's review list.
+const HOLD = /buccal|\bLPG\b|endermolog/i;
 const GATED_NAMES = services.filter((s) => s.status !== 'live').map((s) => s.name);
 function wording(where, text, { claims = true } = {}) {
   const c = text.match(BANNED_COMMERCE);
@@ -273,6 +276,10 @@ for (const f of [...htmlFiles, llmsPath].filter((x) => existsSync(x))) {
   let t = f.endsWith('.html') ? visibleText(read(f)) : read(f);
   // Gift kit fix 6: /gift-cards may name Square's legal name in exactly this one sentence (site.json square_gift_name).
   if (site.square_gift_name && rel(f).startsWith('/gift-cards')) t = t.split(`It shows the name ${site.square_gift_name}.`).join('');
+  // Owner decision 7 Nov 2026 (Ian and Katy; lawyer review pending): /med-spa/ may name the separate business
+  // Unique Med Spa (Unique Med Spa Aesthetics Inc). Exact, case-sensitive strings on that one page only;
+  // "Unique Med Spa" anywhere else is still a wrong NAP variant of Unique Spa House.
+  if (rel(f) === '/med-spa/') t = t.split('Unique Med Spa Aesthetics Inc').join('').split('Unique Med Spa').join('');
   for (const re of WRONG) { const m = t.match(re); check(`no wrong NAP variant ${re} in ${rel(f)}`, !m, m && t.slice(Math.max(0, m.index - 40), m.index + 40)); }
   const phones = [...new Set(t.match(PHONE_RE) || [])];
   check(`only the spa phone number in ${rel(f)}`, phones.every((p) => p === site.phone.display), phones.join(', '));

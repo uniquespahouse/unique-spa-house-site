@@ -59,8 +59,7 @@
      "price": 120,
      "minutes": 30,
      "locations": [
-      "SD",
-      "DM"
+      "SD"
      ],
      "square_name": "Deep tissue 30 min (Top massage therapist)"
     },
@@ -70,26 +69,24 @@
      "price": 165,
      "minutes": 60,
      "locations": [
-      "SD",
-      "DM"
+      "SD"
      ],
      "square_name": "Deep Tissue Massage 60 min (Top Massage Therapist)"
     },
     {
      "label": "90 min",
      "square_id": "3XQVNTCO5D66VPF4FALNHGHX",
-     "price": 225,
+     "price": 215,
      "minutes": 90,
      "locations": [
-      "SD",
-      "DM"
+      "SD"
      ],
      "square_name": "Deep Tissue Massage 90 min (Top Massage Therapist)"
     },
     {
      "label": "120 min",
      "square_id": "7FT74RUYMFDKG24JE42QHCF3",
-     "price": 275,
+     "price": 260,
      "minutes": 120,
      "locations": [
       "SD"
@@ -99,7 +96,7 @@
    ],
    "summary": "Slower, firmer work on deeper layers of muscle.",
    "flagship": null,
-   "notes": null
+   "notes": "Del Mar: deep tissue only with Katy (owner answer 25 Nov 2026)"
   },
   {
    "id": "therapeutic",
@@ -499,7 +496,7 @@
     {
      "label": "60 min",
      "square_id": "VUHCC2QWXVAAHTZ74TS7NSVQ",
-     "price": 165,
+     "price": 180,
      "minutes": 60,
      "locations": [
       "SD",
@@ -510,7 +507,7 @@
     {
      "label": "90 min",
      "square_id": "YIWAUSGWSOHAV5OCGFFM6S3Q",
-     "price": 225,
+     "price": 245,
      "minutes": 90,
      "locations": [
       "SD",
@@ -521,7 +518,7 @@
     {
      "label": "120 min",
      "square_id": "ZIBZ7HVEVR5X6TQSCLYUC2KA",
-     "price": 275,
+     "price": 300,
      "minutes": 120,
      "locations": [
       "SD",
@@ -538,7 +535,7 @@
    "id": "liposuction-massage",
    "name": "Liposuction massage",
    "group": "massage",
-   "status": "hold",
+   "status": "live",
    "medical": "no",
    "options": [
     {
@@ -554,7 +551,7 @@
    ],
    "summary": "A long, focused session on one area.",
    "flagship": null,
-   "notes": "HOLD (review #2, 4 Nov 2026): not named, priced or bookable anywhere until Katy answers Q13 (what it is, who it is for, post-surgery clearance). O-17: contents and name to confirm. To bring back: set status live and re-add the check-leaks.mjs allow-list."
+   "notes": "O-17: contents and name to confirm; menu row only. Back on the menu 8 Nov 2026 (Ian, 16:45 PT): reverses the 4 Nov hold (review #2). Name still asked in Q13."
   },
   {
    "id": "babor-sculpt-lift",
@@ -621,7 +618,7 @@
    ],
    "summary": "Customised after a skin assessment; price set at your visit.",
    "flagship": null,
-   "notes": "Square price 0 / varies: show \"Price set at your visit (from $164)\" — menu knowledge says from $164"
+   "notes": "Square price 0 / varies. Owner 2026-11-10 (Katy queue item 5): show \"price set at your visit\" only, no starting price."
   },
   {
    "id": "pure-detox",
@@ -785,7 +782,7 @@
    "id": "hydro-facial",
    "name": "Hydro facial (Glass Skin Glow by Glacē)",
    "group": "facials",
-   "status": "hold",
+   "status": "live",
    "medical": "no",
    "options": [
     {
@@ -811,7 +808,7 @@
    ],
    "summary": "Hydrodermabrasion, serum, mask and LED.",
    "flagship": "/facials/hydro-facial",
-   "notes": "O-19 peel product"
+   "notes": "Hold lifted: owner decision 25 Nov 2026 (Ian). On Katy's review list; she may remove it later."
   },
   {
    "id": "buccal",

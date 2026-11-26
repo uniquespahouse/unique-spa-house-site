@@ -30,7 +30,6 @@ import { claimVisible, claimPending, giftCoversVerb, giftBothSpasConfirmed } fro
 // "No fees" / "covers a whole visit" wait on G0 (QA M8); "both spas" and "not on specials" on O-P5 (QA M7).
 const noFees = claimVisible('g0-gift-no-fees');
 const bothSpas = claimVisible('gift-both-spas');
-const notOnSpecials = claimVisible('gift-not-on-specials');
 const neverExpire = claimVisible('gift-never-expire');
 // Copy that can't carry a draft label (meta, running text, tile labels) states only CONFIRMED claims (QA follow-up Q3b).
 const bothSpasConfirmed = giftBothSpasConfirmed();
@@ -53,7 +52,8 @@ const tileDefs: Array<{ key: string; picks: Pick[]; covers: string }> = [
   { key: '100', picks: [{ id: 'foot', minutes: 30 }], covers: 'Foot massage, {len}' },
   { key: '150', picks: [{ id: 'swedish', minutes: 60 }, { id: 'lymphatic', minutes: 60 }], covers: 'Swedish or lymphatic massage, {len}' },
   { key: '200', picks: [{ id: 'swedish', minutes: 90 }, { id: 'relaxing', minutes: 90 }], covers: 'Swedish or relaxing massage, {len}' },
-  { key: '225', picks: [{ id: 'deep-tissue', minutes: 90 }, { id: 'therapeutic', minutes: 90 }, { id: 'katy', minutes: 90 }], covers: 'Deep tissue, therapeutic or Katy massage, {len}' },
+  // 25 Nov 2026: Square moved deep tissue 90 to $215 and Katy 90 to $245, so the $225 tile covers therapeutic 90 only.
+  { key: '225', picks: [{ id: 'therapeutic', minutes: 90 }], covers: 'Therapeutic massage, {len}' },
   { key: '250', picks: [{ id: 'swedish', minutes: 120 }, { id: 'lymphatic', minutes: 120 }], covers: 'Swedish or lymphatic massage, {len}' },
   { key: 'couples', picks: [{ id: 'couples', label: '60 min, for two' }, { id: 'couples', label: '90 min, for two' }], covers: 'Couples massage for two, {len}' },
 ];
@@ -201,7 +201,7 @@ const squareName = (site as { square_gift_name?: string | null }).square_gift_na
     <ul class="gc-terms__list">
       <li><strong>{neverExpire && noFees ? 'eGift cards never expire and carry no fees. ' : neverExpire ? 'eGift cards never expire. ' : noFees ? 'eGift cards carry no fees. ' : ''}Balances under $15 can be cashed out.</strong>{neverExpire && <ConfirmNote id="gift-never-expire" />}{noFees && <ConfirmNote id="g0-gift-no-fees" />}</li>
       {bothSpas && <li>Gift cards can be used at both spas, for any service on the menu.<ConfirmNote id="gift-both-spas" /></li>}
-      {notOnSpecials && <li>Gift cards can't be used to pay for specials.<ConfirmNote id="gift-not-on-specials" /></li>}
+      <li>Gift cards can be used to pay for specials.</li>
       <li>Lost the email or text? Call us on <a href={site.phone.tel} data-track="call_click" data-track-props='{"placement":"gift-terms"}'>{site.phone.display}</a> and we'll help.</li>
     </ul>
     <p class="gc-terms__more"><a class="link-arrow" href="/policies#gift-cards">All booking policies<Icon name="arrow-right" /></a></p>

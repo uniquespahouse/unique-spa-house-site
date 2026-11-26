@@ -2,21 +2,39 @@
    site's window.track (off unless enabled; event name and short slugs only, never what the guest types or says).
    Site build of bot/chat/spa-chat.js, adapted for the Astro layout (blueprint §4.11):
    - mounts inside the persisted #uni node (ClientRouter transition:persist), so a voice call survives page changes
-   - never auto-opens; opened only by window.UniChat.open() from the header link, hero link, inline prompts or the bar
-   - text chat is a true modal dialog: aria-modal, focus trap, background inert, full screen on mobile
-   - a tap-to-start AI notice before the first message; a recording notice before the mic starts
-   - a live voice call can be minimized to a non-modal call strip (mute, end, transcript) */
+   - phones and tablets: never auto-opens; opened only by window.UniChat.open() from the header link, hero link,
+     inline prompts or the bar, as a true modal dialog (aria-modal, focus trap, background inert, full screen on mobile)
+   - desktop (owner request, 14 Nov 2026): the same panel is DOCKED bottom right, not modal (no scrim, no inert, no focus
+     trap). The site calls window.UniChat.dock() 3 s after the first page load and the panel fades and slides in from
+     the right without taking focus; it then stays on display across pages. Closing it is remembered for the visit.
+   - no "Start chat" step (owner request, 14 Nov 2026): Ask Uni goes straight to the live chat, with the text box and
+     the Speak box. The AI, recording and privacy notice that used to be the tap-to-start page is now the line under
+     the boxes (.usc-foot), on screen before the first message. On touch screens the chat does not focus the text box
+     by itself, so the keyboard stays down and that line and both boxes are visible when the chat opens.
+   - voice, two ways in: the "Speak your question…" box under the text box starts the call in one tap (owner request,
+     14 Nov 2026); the recording and microphone notice for it sits right under that box (the footer line), so it is
+     read before the tap. The small mic button in the header still shows the notice and asks first.
+   - a live voice call can be minimized to a non-modal call strip (mute, end, transcript)
+   Booking (Uni books appointments, 13 Nov 2026): when the chat Worker answers with a booking ref (chat), or the voice agent
+   calls the show_card_form client tool, Square's own secure card form (Web Payments SDK, web.squarecdn.com) opens in the
+   chat with the spa's cancellation/no-show policy and a consent box. The card number lives only inside Square's iframe:
+   this file only ever handles Square's one-time card token, and Uni (the AI) only hears "Booked: ..." or "Not booked: ...".
+   Card-number-like digits a guest types or says are removed before they are stored, shown or sent. */
 (function () {
   if (window.__uscLoaded) return; window.__uscLoaded = true;
   var API = '/api/chat';
   var LEAD_API = '/api/lead';
+  var BOOK_API = '/api/book', BOOK_INTENT_API = '/api/book/intent', BOOK_CONFIG_API = '/api/book/config';
+  // Only Square's own SDK may be loaded for the card form (the CSP allows this host and nothing else for it).
+  var SQUARE_SDK_OK = /^https:\/\/(sandbox\.)?web\.squarecdn\.com\/v1\/square\.js$/;
+  var CARDLIKE = /(?:\d[\s.\-]?){13,19}/g; // 13-19 digit runs: card numbers are never stored, shown or sent
+  function redactCard(t) { return String(t).replace(CARDLIKE, '[card number removed]'); }
   var VOICE_SDK = '/chat/uni-voice.js';
   // Self-hosted AudioWorklets (public/chat/worklets): the CSP allows scripts from 'self' only, no blob: or CDN.
   var VOICE_WORKLETS = { rawAudioProcessor: '/chat/worklets/rawAudioProcessor.js', audioConcatProcessor: '/chat/worklets/audioConcatProcessor.js' };
   var VOICE_RESAMPLER = '/chat/worklets/libsamplerate.worklet.js';
-  var AGENT_ID = 'agent_5001m5p0gcjhfqn9tdgn8ysdgwe3';
+  var AGENT_ID = 'agent_9401m6wnk56heqnv0j95xcbx15td';
   var KEY = 'usc-chat-v2';
-  var CONSENT_KEY = 'usc-ai-notice-v1';
   var WELCOME = "Hi, I'm Uni, the spa's AI assistant. Ask me about treatments, prices, specials or booking. Or tap the mic to talk to me.";
   var CHIPS = ['Massage prices', 'Current specials', 'Book an appointment', 'Locations & hours', 'Gift cards'];
   var LINKS = {
@@ -36,8 +54,6 @@
   var msgs = [];
   try { msgs = JSON.parse(sessionStorage.getItem(KEY) || '[]') || []; } catch (e) { msgs = []; }
   function save() { try { sessionStorage.setItem(KEY, JSON.stringify(msgs.slice(-30))); } catch (e) {} }
-  function consented() { try { return sessionStorage.getItem(CONSENT_KEY) === '1'; } catch (e) { return false; } }
-  function setConsent() { try { sessionStorage.setItem(CONSENT_KEY, '1'); } catch (e) {} }
 
   function h(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -81,11 +97,6 @@
   var close = h('button', 'usc-hbtn usc-close', ICON_X); close.type = 'button'; close.setAttribute('aria-label', 'Close chat');
   head.appendChild(micBtn); head.appendChild(minBtn); head.appendChild(close);
 
-  var notice = h('div', 'usc-notice');
-  notice.innerHTML = '<p><b>Uni is an AI assistant.</b> Your messages go to our AI providers so Uni can answer, and chats may be recorded and transcribed. Please don\'t share health or card details.</p>' +
-    '<p><a href="/privacy/">How we use chat data</a></p>';
-  var startBtn = h('button', 'usc-start', 'Start chat'); startBtn.type = 'button';
-  notice.appendChild(startBtn);
 
   var vconfirm = h('div', 'usc-vconfirm'); vconfirm.hidden = true;
   vconfirm.innerHTML = '<p><b>Before we start:</b> voice calls with Uni are recorded and transcribed by our voice provider. Your browser will ask to use the microphone.</p>';
@@ -104,8 +115,15 @@
   var input = h('textarea', 'usc-input'); input.rows = 1; input.placeholder = 'Type your question…'; input.maxLength = 1500; input.setAttribute('aria-label', 'Your message');
   var send = h('button', 'usc-send', ICON_SEND); send.type = 'submit'; send.setAttribute('aria-label', 'Send');
   form.appendChild(input); form.appendChild(send);
-  var foot = h('div', 'usc-foot', 'Uni is an AI assistant and can make mistakes. Chats may be recorded and transcribed (see our Privacy page). Never share card or health details here.');
-  panel.appendChild(head); panel.appendChild(notice); panel.appendChild(vconfirm); panel.appendChild(log); panel.appendChild(chips); panel.appendChild(vbar); panel.appendChild(form); panel.appendChild(foot);
+  // "Speak your question…": one tap starts the voice call (same as "Start the call"). Its notice is the footer line below it.
+  var speakRow = h('div', 'usc-speakrow');
+  var speak = h('button', 'usc-speak', '<span class="usc-speak-t">Speak your question…</span><span class="usc-speak-i">' + ICON_MIC + '</span>'); speak.type = 'button';
+  speak.setAttribute('aria-label', 'Speak your question: start a voice call with Uni'); speak.setAttribute('aria-describedby', 'usc-foot');
+  speakRow.appendChild(speak);
+  // The one notice (it replaced the tap-to-start page): AI disclosure, where messages go, recording, microphone, privacy link.
+  var foot = h('div', 'usc-foot', '<b>Uni is an AI assistant</b> and can make mistakes. Your messages go to our AI providers so Uni can answer, and chats may be recorded and transcribed. <b>Voice calls are recorded and transcribed</b> by our voice provider, and your browser will ask to use the microphone. Never share card or health details here. <a href="/privacy/">How we use chat data</a>');
+  foot.id = 'usc-foot';
+  panel.appendChild(head); panel.appendChild(vconfirm); panel.appendChild(log); panel.appendChild(chips); panel.appendChild(vbar); panel.appendChild(form); panel.appendChild(speakRow); panel.appendChild(foot);
 
   // Non-modal call strip (shown while a call is minimized)
   var strip = h('div', 'usc-strip'); strip.hidden = true; strip.setAttribute('role', 'region'); strip.setAttribute('aria-label', 'Call with Uni');
@@ -133,12 +151,9 @@
     log.appendChild(wrap); scroll(); return true;
   }
   function note(text) { log.appendChild(h('div', 'usc-err', esc(text))); scroll(); }
-  function gate() {
-    var ok = consented();
-    notice.hidden = ok; log.hidden = !ok; chips.hidden = !ok; form.hidden = !ok;
-    micBtn.disabled = !ok;
-  }
   function render() {
+    // An open card form stays as it is: rebuilding the log would reload Square's iframe and lose what the guest typed.
+    if (booking && !booking.done && log.contains(booking.box)) return;
     log.innerHTML = '';
     bubble('assistant', WELCOME);
     msgs.forEach(function (m) { if (m.role === 'link') linkCard(m.content); else bubble(m.role, m.content); });
@@ -148,15 +163,15 @@
       b.addEventListener('click', function () { ask(c); });
       chips.appendChild(b);
     });
-    gate();
+    speakRow.hidden = !!(voice || starting);
   }
   function history() { return msgs.filter(function (m) { return m.role === 'user' || m.role === 'assistant'; }).slice(-24); }
 
   // ---------- Text chat ----------
   var busy = false;
   function ask(text) {
-    text = String(text || '').trim();
-    if (!text || busy || !consented()) return;
+    text = redactCard(String(text || '').trim());
+    if (!text || busy) return;
     chips.innerHTML = '';
     if (voice) { // during a call, typed text goes to the voice agent
       try { voice.sendUserMessage(text); msgs.push({ role: 'user', content: text }); save(); bubble('user', text); input.value = ''; grow(); } catch (e) {}
@@ -172,7 +187,11 @@
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (res) {
         t.remove();
-        if (res.ok && res.d.reply) { msgs.push({ role: 'assistant', content: res.d.reply }); save(); bubble('assistant', res.d.reply); if (res.d.lead_captured) track('chat_lead', { channel: 'chat' }); }
+        if (res.ok && res.d.reply) {
+          msgs.push({ role: 'assistant', content: res.d.reply }); save(); bubble('assistant', res.d.reply);
+          if (res.d.lead_captured) track('chat_lead', { channel: 'chat' });
+          if (res.d.booking && /^[A-Z0-9]{12}$/.test(res.d.booking.ref || '')) openCardForm(res.d.booking.ref, 'chat');
+        }
         else { msgs.pop(); save(); note(res.d.error || 'Sorry, something went wrong. Please call (858) 293-8900.'); }
       })
       .catch(function () { t.remove(); msgs.pop(); save(); note('Connection problem. Please try again, or call (858) 293-8900.'); })
@@ -199,6 +218,7 @@
     if (text) { vtext.textContent = text; stext.textContent = 'Uni call · ' + text; }
     vbar.setAttribute('data-mode', mode || ''); strip.setAttribute('data-mode', mode || '');
     input.placeholder = on ? 'Speak, or type to Uni…' : 'Type your question…';
+    speakRow.hidden = on; // during a call the call bar (Mute, End call) takes its place
     if (!on) { strip.hidden = true; root.classList.remove('usc-min'); }
   }
   function askVoice() { if (voice || starting) { stopVoice(); return; } vconfirm.hidden = false; vgo.focus(); }
@@ -209,14 +229,21 @@
     starting = true; chips.innerHTML = '';
     setVoiceUI(true, 'Connecting…', 'connecting');
     navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(function (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); return loadSdk(); })
-      .then(function (SDK) {
+      .then(function (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); return Promise.all([loadSdk(), voiceAgentId()]); })
+      .then(function (both) {
+        var SDK = both[0];
         return SDK.Conversation.startSession({
-          agentId: AGENT_ID,
+          agentId: both[1],
           connectionType: 'websocket',
           workletPaths: VOICE_WORKLETS,
           libsampleratePath: VOICE_RESAMPLER,
           clientTools: {
+            show_card_form: function (p) {
+              var ref = p && String(p.booking_ref || '').trim().toUpperCase();
+              if (!/^[A-Z0-9]{12}$/.test(ref)) return 'Failed: no valid booking_ref. Offer the booking link or the phone instead.';
+              if (!isOpen) open();
+              return openCardForm(ref, 'voice');
+            },
             show_link: function (p) {
               var k = p && p.link;
               if (!linkCard(k)) return 'Unknown link';
@@ -242,7 +269,7 @@
           onModeChange: function (m) { if (voice) setVoiceUI(true, m.mode === 'speaking' ? 'Uni is speaking…' : (muted ? 'Muted' : 'Listening…'), m.mode); },
           onMessage: function (m) {
             var role = m.source === 'user' ? 'user' : 'assistant';
-            var text = String(m.message || '').trim(); if (!text) return;
+            var text = redactCard(String(m.message || '').trim()); if (!text) return;
             var last = msgs[msgs.length - 1];
             if (role === 'user' && last && last.role === 'user' && last.content === text) return; // typed text echo
             msgs.push({ role: role, content: text }); save(); bubble(role, text);
@@ -256,6 +283,132 @@
         note(denied ? 'Microphone is blocked. Allow mic access to talk, or keep typing.' : 'Voice isn\'t available right now. You can keep typing, or call (858) 293-8900.');
       });
   }
+  // The chat Worker may name another agent (the acceptance copy names the booking TEST copy, so PR previews never use
+  // or change the live agent). No answer, an error or a bad id within 1.5 s -> the live agent above.
+  function voiceAgentId() {
+    var fallback = new Promise(function (r) { setTimeout(function () { r(AGENT_ID); }, 1500); });
+    var asked = fetch(BOOK_CONFIG_API, { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : {}; })
+      .then(function (d) { var id = d && d.voice_agent_id; return typeof id === 'string' && /^agent_[a-z0-9]{20,40}$/.test(id) ? id : AGENT_ID; })
+      .catch(function () { return AGENT_ID; });
+    return Promise.race([asked, fallback]);
+  }
+
+  // ---------- Booking: Square's secure card form ----------
+  var sqPromise = null, booking = null;
+  function loadSquare(url) {
+    if (window.Square && window.Square.payments) return Promise.resolve(window.Square);
+    if (!SQUARE_SDK_OK.test(url || '')) return Promise.reject(new Error('sdk url'));
+    if (sqPromise) return sqPromise;
+    sqPromise = new Promise(function (resolve, reject) {
+      var s = document.createElement('script'); s.src = url; s.async = true;
+      s.onload = function () { window.Square && window.Square.payments ? resolve(window.Square) : reject(new Error('sdk')); };
+      s.onerror = function () { sqPromise = null; reject(new Error('sdk')); };
+      document.head.appendChild(s);
+    });
+    return sqPromise;
+  }
+  function postJson(url, body) {
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d || {} }; }); });
+  }
+  function closeBooking() {
+    var b = booking; booking = null;
+    if (b && b.card) { try { b.card.destroy(); } catch (e) {} }
+  }
+  // What Uni is told afterwards: never card data, only the result.
+  function tellUni(line) {
+    msgs.push({ role: 'assistant', content: line }); save(); bubble('assistant', line);
+    if (voice) { try { voice.sendContextualUpdate('booking_result: ' + line); } catch (e) {} }
+  }
+  var bookSeq = 0;
+  function openCardForm(ref, channel) {
+    closeBooking();
+    var id = 'usc-sqcard-' + (++bookSeq);
+    var box = h('div', 'usc-msg usc-bot usc-book');
+    box.setAttribute('role', 'group'); box.setAttribute('aria-labelledby', id + '-t');
+    box.innerHTML = '<p class="usc-book-t" id="' + id + '-t"><b>Secure card form</b></p><p class="usc-book-sum">Loading…</p>';
+    log.appendChild(box); scroll();
+    var b = { ref: ref, channel: channel, box: box, card: null, busy: false, done: false };
+    booking = b;
+    var sum = box.querySelector('.usc-book-sum');
+    function fail(msg) { sum.textContent = msg; scroll(); return 'Failed: ' + msg + ' Offer the booking link or the phone instead.'; }
+    return postJson(BOOK_INTENT_API, { ref: ref }).then(function (res) {
+      if (booking !== b) return 'Replaced by a newer card form.';
+      if (!res.ok || !res.d.intent) return fail(res.d.message || 'This booking form has expired. Please ask Uni for the time again.');
+      var v = res.d; b.view = v;
+      sum.innerHTML = '<b>' + esc(v.service) + '</b><br>' + esc(v.time) + ' (Pacific) · ' + esc(v.spa) + '<br>For ' + esc(v.guest);
+      var test = v.live ? '' : '<p class="usc-book-test">TEST ONLY: nothing will be booked and no card will be saved.</p>';
+      var pend = v.policy_ready ? '' : '<span class="usc-book-pend">Wording pending: not final</span>';
+      var rest = h('div', 'usc-book-body');
+      rest.innerHTML = test +
+        '<p class="usc-book-note">Type your card in Square\'s secure form below. Uni never sees or hears your card.</p>' +
+        '<div class="usc-sqcard" id="' + id + '"></div>' +
+        '<div class="usc-policy"><b>Cancellation and no-show policy</b> ' + pend + '<p>' + esc(v.policy) + '</p></div>' +
+        '<label class="usc-consent"><input type="checkbox"> <span>I agree to this policy and to the spa saving this card on file in Square for this booking.</span></label>' +
+        '<div class="usc-book-row"><button type="button" class="usc-vbtn usc-vend usc-book-go" disabled><span>Book</span></button>' +
+        '<button type="button" class="usc-vbtn usc-book-no"><span>Cancel</span></button></div>' +
+        '<p class="usc-book-st" aria-live="polite"></p>';
+      box.appendChild(rest); scroll();
+      var go = rest.querySelector('.usc-book-go'), no = rest.querySelector('.usc-book-no'), tick = rest.querySelector('.usc-consent input'), st = rest.querySelector('.usc-book-st');
+      function ready() { go.disabled = !(tick.checked && b.card && !b.busy && !b.done); }
+      tick.addEventListener('change', ready);
+      no.addEventListener('click', function () {
+        if (b.busy || b.done) return;
+        b.done = true; closeBooking(); rest.remove(); sum.textContent = 'Card form closed. Nothing was booked.';
+        tellUni('Not booked: the guest closed the card form.');
+      });
+      go.addEventListener('click', function () { if (!go.disabled) submit(); });
+      function submit() {
+        b.busy = true; ready(); st.textContent = 'Saving your card securely…';
+        var details = { intent: 'STORE', customerInitiated: true, sellerKeyedIn: false,
+          billingContact: { givenName: v.given_name || '', familyName: v.family_name || '', email: v.email || '' } };
+        Promise.resolve().then(function () { return b.card.tokenize(details); }).then(function (t) {
+          if (!t || t.status !== 'OK' || !t.token) { var e = new Error('tokenize'); e.user = true; throw e; }
+          // Newer SDKs verify the buyer (SCA) inside tokenize(details); older ones need verifyBuyer for a STORE token.
+          if (b.payments && typeof b.payments.verifyBuyer === 'function' && !(t.details && t.details.verification)) {
+            return b.payments.verifyBuyer(t.token, details).then(function (vr) { return { token: t.token, verification: vr && vr.token }; }, function () { return { token: t.token }; });
+          }
+          return { token: t.token };
+        }).then(function (tok) {
+          st.textContent = 'Booking…';
+          var body = { intent: v.intent, card_token: tok.token, consent: true };
+          if (tok.verification) body.verification_token = tok.verification;
+          return postJson(BOOK_API, body);
+        }).then(function (res) {
+          b.busy = false;
+          var d = res.d || {};
+          if (res.ok && d.ok && d.booked) {
+            b.done = true; closeBooking(); rest.remove();
+            var line = 'Booked: ' + d.booked.service + ', ' + d.booked.time + ' at ' + d.booked.spa + '.' + (d.dry_run ? ' (Test only: nothing was really booked.)' : ' A confirmation comes from Square.') + (typeof d.notice === 'string' && d.notice ? ' ' + d.notice : '');
+            sum.innerHTML = '<b>' + (d.dry_run ? 'Test complete (nothing booked)' : 'Booked') + '</b><br>' + esc(d.booked.service) + '<br>' + esc(d.booked.time) + ' (Pacific) · ' + esc(d.booked.spa) + (typeof d.notice === 'string' && d.notice ? '<br>' + esc(d.notice) : '');
+            tellUni(line);
+            return;
+          }
+          var again = d.reason === 'card_declined' || d.reason === 'verification_required' || d.reason === 'calendar_unavailable';
+          st.textContent = d.message || 'We couldn\'t complete the booking. Please call (858) 293-8900.';
+          if (again) { ready(); return; } // the guest may fix the card and press Book again; never automatic
+          b.done = true; closeBooking(); rest.querySelector('.usc-sqcard').remove(); ready(); no.remove();
+          tellUni('Not booked: ' + st.textContent);
+        }).catch(function (e) {
+          b.busy = false;
+          st.textContent = e && e.user ? 'Please check the card details and try again.' : 'Connection problem. Nothing was booked. Please try again or call (858) 293-8900.';
+          ready();
+        });
+      }
+      return loadSquare(v.sdk_url).then(function (Sq) {
+        b.payments = Sq.payments(v.app_id, v.location_id);
+        return b.payments.card();
+      }).then(function (card) {
+        if (booking !== b) { try { card.destroy(); } catch (e) {} return 'Replaced by a newer card form.'; }
+        b.card = card;
+        return card.attach('#' + id).then(function () { ready(); scroll(); return 'The secure card form is on the guest\'s screen. Not booked yet: wait for booking_result.'; });
+      }).catch(function () {
+        rest.remove(); return fail('The secure card form couldn\'t load. Please book online or call (858) 293-8900.');
+      });
+    }, function () { return fail('Connection problem. Please book online or call (858) 293-8900.'); });
+  }
+
   function endVoiceUI() { voice = null; starting = false; muted = false; vmute.querySelector('span').textContent = 'Mute'; smute.querySelector('span').textContent = 'Mute'; setVoiceUI(false); }
   function stopVoice() { var v = voice; endVoiceUI(); if (v) { try { v.endSession(); } catch (e) {} } }
   function toggleMute() {
@@ -267,6 +420,7 @@
   }
 
   micBtn.addEventListener('click', askVoice);
+  speak.addEventListener('click', function () { if (voice || starting) return; startVoice(); });
   vgo.addEventListener('click', startVoice);
   vno.addEventListener('click', function () { vconfirm.hidden = true; micBtn.focus(); });
   vend.addEventListener('click', stopVoice);
@@ -275,6 +429,17 @@
   send2.addEventListener('click', function () { stopVoice(); });
   sopen.addEventListener('click', function () { open(sopen); });
   window.addEventListener('pagehide', stopVoice);
+
+  // ---------- Desktop dock (not modal) ----------
+  var DOCK_Q = '(min-width: 961px)', DOCK_CLOSED = 'usc-dock-closed-v1';
+  var docked = false;
+  function wide() { try { return window.matchMedia(DOCK_Q).matches; } catch (e) { return false; } }
+  function dockClosed() { try { return sessionStorage.getItem(DOCK_CLOSED) === '1'; } catch (e) { return false; } }
+  function setDockClosed(on) { try { if (on) sessionStorage.setItem(DOCK_CLOSED, '1'); else sessionStorage.removeItem(DOCK_CLOSED); } catch (e) {} }
+  function setDock(on) {
+    docked = on; root.classList.toggle('usc-dock', on);
+    panel.setAttribute('aria-modal', on ? 'false' : 'true');
+  }
 
   // ---------- Modal: inert background + focus trap ----------
   var opener = null, isOpen = false;
@@ -294,7 +459,7 @@
     });
   }
   panel.addEventListener('keydown', function (e) {
-    if (e.key !== 'Tab') return;
+    if (e.key !== 'Tab' || docked) return; // docked: Tab moves on through the page as usual
     var f = focusables(); if (!f.length) return;
     var first = f[0], last = f[f.length - 1];
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
@@ -302,14 +467,27 @@
   });
 
   // ---------- Open / close / minimize ----------
+  // Where focus lands when the chat opens. Mouse and keyboard: the text box. Touch screens: the panel itself, so the
+  // on-screen keyboard stays down and the two boxes and the notice line under them are all visible.
+  function touch() { try { return window.matchMedia('(pointer: coarse)').matches; } catch (e) { return false; } }
+  function focusIn() { (touch() ? panel : input).focus(); }
   function grow() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; }
-  function open(from) {
+  // auto = the desktop slide-in: no focus move, no opener, and the slide animation instead of the pop.
+  function open(from, auto) {
     if (!root.isConnected) mount();
-    opener = from || document.activeElement;
-    isOpen = true;
+    auto = auto === true;
+    opener = auto ? null : (from || document.activeElement);
+    var was = isOpen; isOpen = true;
+    setDock(wide());
+    if (!was) root.classList.toggle('usc-slide', auto && docked); // already on display: don't replay an entrance
     root.classList.add('usc-open'); root.classList.remove('usc-min'); strip.hidden = true;
-    render(); setInert(true);
-    setTimeout(function () { (consented() ? input : startBtn).focus(); }, 30);
+    render(); setInert(!docked);
+    if (!auto) { setDockClosed(false); setTimeout(focusIn, 30); }
+  }
+  // Desktop only: show the docked panel by itself (site.ts calls this 3 s after the first page load).
+  function dock() {
+    if (isOpen || voice || starting || !wide() || dockClosed()) return false;
+    open(null, true); return true;
   }
   function restoreFocus() {
     var o = opener; opener = null;
@@ -317,17 +495,17 @@
   }
   function shut() {
     stopVoice();
-    isOpen = false; root.classList.remove('usc-open'); setInert(false);
+    if (docked) setDockClosed(true); // closed on desktop: stay closed for the rest of the visit, until asked for again
+    isOpen = false; root.classList.remove('usc-open', 'usc-slide'); setInert(false);
     restoreFocus();
   }
   function minimize() {
     if (!voice && !starting) { shut(); return; }
-    isOpen = false; root.classList.remove('usc-open'); root.classList.add('usc-min'); setInert(false);
+    isOpen = false; root.classList.remove('usc-open', 'usc-slide'); root.classList.add('usc-min'); setInert(false);
     strip.hidden = false;
     restoreFocus();
   }
 
-  startBtn.addEventListener('click', function () { setConsent(); gate(); input.focus(); });
   close.addEventListener('click', shut);
   minBtn.addEventListener('click', minimize);
   scrim.addEventListener('click', function () { (voice || starting) ? minimize() : shut(); });
@@ -341,11 +519,30 @@
   function mount() { host().appendChild(root); }
   mount();
 
+  // Window resized across the desktop breakpoint while open: switch between docked and modal.
+  try {
+    var mq = window.matchMedia(DOCK_Q);
+    var onMq = function () {
+      if (!isOpen) return;
+      var wasDocked = docked, prev = document.activeElement;
+      setDock(wide()); if (!docked) root.classList.remove('usc-slide'); setInert(!docked);
+      // Dock -> modal (the window got narrower): the page behind is now inert, so bring focus into the chat and
+      // remember where it was, to hand it back when the chat closes.
+      if (wasDocked && !docked && !panel.contains(prev)) {
+        opener = prev && prev !== document.body ? prev : null;
+        focusIn();
+      }
+    };
+    if (mq.addEventListener) mq.addEventListener('change', onMq); else if (mq.addListener) mq.addListener(onMq);
+  } catch (e) {}
+
   window.UniChat = {
-    open: open,
+    open: function (from) { open(from); },
+    dock: dock,
     close: shut,
     isOpen: function () { return isOpen; },
+    isDocked: function () { return isOpen && docked; },
     inCall: function () { return !!(voice || starting); },
-    refreshInert: function () { if (isOpen) setInert(true); }
+    refreshInert: function () { if (isOpen && !docked) setInert(true); }
   };
 })();

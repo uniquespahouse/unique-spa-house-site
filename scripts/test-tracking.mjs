@@ -128,7 +128,8 @@ for (const b of BUILDS) {
     check(`${b.name}: no Cloudflare beacon anywhere`, !/cloudflareinsights|data-cf-beacon/.test(all));
     check(`${b.name}: no event endpoint anywhere`, !all.includes('/api/event'));
     check(`${b.name}: no token-shaped value in pages`, !all.includes(FAKE_TOKEN));
-    check(`${b.name}: privacy says no analytics`, /Visit statistics:<\/strong> none at the moment/.test(privacy) && !/Cloudflare:<\/strong>/.test(privacy));
+    // Owner OK (Ian, 25 Nov 2026): the launch privacy page names Cloudflare as the host ("Cloudflare:</strong> hosting…"), so match the analytics line itself.
+    check(`${b.name}: privacy says no analytics`, /Visit statistics:<\/strong> none at the moment/.test(privacy) && !/<strong>Cloudflare(?: \(visit statistics\))?:<\/strong> cookieless/.test(privacy));
   } else {
     const pages = files.filter((f) => f.endsWith('.html'));
     const withBeacon = pages.filter((f) => readFileSync(f, 'utf8').includes('static.cloudflareinsights.com/beacon.min.js'));
@@ -141,7 +142,8 @@ for (const b of BUILDS) {
 
 // ---------------------------------------------------------------- 4. personal data can't get through
 const PII = ['jane', 'doe', 'john', 'smith', 'mary', 'jane@example.com', 'example.com/x', '858', '2938900', '4111', '1111', 'allerg', 'pregnan', 'secret', 'ignore previous', '<script', '1.2.3.4', 'mozilla', 'session', 'cookie'];
-const hasPII = (obj) => { const s = JSON.stringify(obj).toLowerCase(); return PII.filter((x) => s.includes(x)); };
+// Unix timestamps (10-digit seconds, 13-digit ms) are stripped first: they can contain 4111 or 1111 by chance.
+const hasPII = (obj) => { const s = JSON.stringify(obj).toLowerCase().replace(/(?<!\d)(\d{10}|\d{13})(?!\d)/g, ''); return PII.filter((x) => s.includes(x)); };
 const hostile = [
   { e: 'book_click', p: { spa: 'SD', service: 'swedish', placement: 'sheet', name: 'Jane Doe', email: 'jane@example.com', phone: '(858) 293-8900' } },
   { e: 'lead_submitted', p: { source: 'Jane Doe', interest: 'jane@example.com', spa: 'Del Mar' }, notes: 'I am pregnant, allergic' },

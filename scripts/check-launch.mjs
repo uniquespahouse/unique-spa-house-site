@@ -9,7 +9,7 @@
 // unique on each page. (Byte-for-byte reproducible builds: npm run test:repro.)
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { buildMode, tempAssets, stagingUrl } from '../src/lib/launch.mjs';
+import { buildMode, tempAssets, tempPhotosApproved, stagingUrl } from '../src/lib/launch.mjs';
 import { inlineScriptHashes } from '../integrations/postbuild.mjs';
 
 const root = new URL('..', import.meta.url).pathname;
@@ -25,8 +25,11 @@ const check = (name, ok, detail = '') => { if (ok) pass++; else { fail++; consol
 
 // ---------------------------------------------------------------- review #3: no temp image slots in a launch build
 if (MODE.launch) {
-  const temp = tempAssets(JSON.parse(readFileSync(join(root, 'src/data/asset-manifest.json'), 'utf8')));
-  check('launch: no asset-manifest.json slot is temp:true', temp.length === 0, temp.map((a) => a.id).join(', '));
+  const manifest = JSON.parse(readFileSync(join(root, 'src/data/asset-manifest.json'), 'utf8'));
+  const temp = tempAssets(manifest);
+  const approved = tempPhotosApproved(manifest);
+  check('launch: no asset-manifest.json slot is temp:true, photo-less or alt_todo (or the owner approved shipping them)', temp.length === 0 || approved, temp.map((a) => a.id).join(', '));
+  if (temp.length && approved) console.log(`! launch: ${temp.length} interim image slot(s) shipping under the owner's approval (${manifest.launch_temp_photos_approved.date}): ${temp.map((a) => a.id).join(', ')}`);
 }
 const walk = (d) => readdirSync(d).flatMap((f) => { const p = join(d, f); return statSync(p).isDirectory() ? walk(p) : [p]; });
 const files = walk(dist);
@@ -45,8 +48,10 @@ for (const f of htmlFiles) {
   const robots = [...h.matchAll(/<meta name="robots" content="([^"]*)"/g)].map((m) => m[1]);
   check(`robots meta ${r}`, robots.length === 1 && robots[0] === wantRobots, JSON.stringify(robots));
   const canon = [...h.matchAll(/<link rel="canonical" href="([^"]*)"/g)].map((m) => m[1]);
-  check(`one canonical on ${MODE.url} ${r}`, canon.length === 1 && canon[0].startsWith(MODE.url + '/'), JSON.stringify(canon));
   const og = (h.match(/<meta property="og:url" content="([^"]*)"/) || [])[1];
+  // The 404 page has no canonical and no og:url: it isn't a page to index, and /404/ only redirects to /404 (QA r2 N5).
+  if (r === '/404.html') { check(`no canonical or og:url on ${r}`, canon.length === 0 && og === undefined, JSON.stringify([canon, og])); continue; }
+  check(`one canonical on ${MODE.url} ${r}`, canon.length === 1 && canon[0].startsWith(MODE.url + '/'), JSON.stringify(canon));
   check(`og:url = canonical ${r}`, og === canon[0], og);
   if (MODE.launch && !r.endsWith('.html')) check(`canonical is the page itself ${r}`, canon[0] === PROD + r, canon[0]);
 }
@@ -126,7 +131,11 @@ if (existsSync(headersPath)) {
     check("CSP form-action 'self' (forms post to /api/lead)", (csp['form-action'] || []).join(' ') === "'self'");
     check("CSP frame-ancestors 'none'", (csp['frame-ancestors'] || []).join(' ') === "'none'");
     check('Permissions-Policy lets this site use the microphone (Uni voice)', /microphone=\(self\)/.test(all.headers['permissions-policy'] || ''));
-    // No Square host is needed: booking and gift links are plain navigations (new tab), which CSP doesn't restrict.
+    // Booking and gift links are plain navigations (new tab), which CSP doesn't restrict. Uni's booking card form uses
+    // Square's Web Payments SDK: its script, card iframe and card-token API must be allowed, and only Square's hosts.
+    const sq = (d, h) => (csp[d] || []).includes(h);
+    check('CSP allows the Square card form (script, iframe, token API)', sq('script-src', 'https://web.squarecdn.com') && sq('frame-src', 'https://web.squarecdn.com') && sq('connect-src', 'https://pci-connect.squareup.com') && sq('connect-src', 'https://web.squarecdn.com'));
+    check('CSP adds no wildcard script host for Square', !script.some((x) => /^https:\/\/\*\./.test(x)), script.join(' '));
     const robotsHeader = all.headers['x-robots-tag'];
     if (MODE.launch) check('launch: /* has no X-Robots-Tag', !robotsHeader, robotsHeader);
     else check('staging: /* sends X-Robots-Tag noindex', /noindex/.test(robotsHeader || ''), robotsHeader);

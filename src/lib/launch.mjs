@@ -40,14 +40,37 @@ export function stagingUrl(site, env = process.env) {
 /**
  * Launch gate for interim images (review #3). A launch build must not ship any asset-manifest.json entry still
  * marked temp:true (TEMP stock crops, CSS placeholders standing in for shoot photos). Staging and PREVIEW builds
- * keep working with the TEMP set.
- * @param {{ assets: Array<{ id: string, file?: string | null, temp?: boolean, replace_with?: string, use?: string }> }} manifest
+ * keep working with the TEMP set. Also blocked, so a half-done photo swap can't slip through:
+ *   - "temp": false but no `file` (or a `variants` entry with no `file`): the page would still show the placeholder;
+ *   - an `alt_todo` note: the alt text is known to be wrong for the final photo (e.g. it describes the interim image).
+ * @param {{ assets: Array<{ id: string, file?: string | null, temp?: boolean, replace_with?: string, use?: string, alt_todo?: string, variants?: Record<string, { file?: string | null }> }> }} manifest
  * @returns {Array<{ id: string, file: string, replace_with: string }>}
  */
 export function tempAssets(manifest) {
-  return (manifest.assets || []).filter((a) => a.temp === true).map((a) => ({
-    id: a.id, file: a.file || '(no file: CSS/typographic placeholder)', replace_with: a.replace_with || '(not set)',
-  }));
+  const out = [];
+  for (const a of manifest.assets || []) {
+    const replace_with = a.replace_with || '(not set)';
+    const variants = a.variants ? Object.entries(a.variants) : null;
+    const fileText = variants
+      ? variants.map(([k, v]) => `${k}: ${v.file || 'no file'}`).join(', ')
+      : a.file || '(no file: CSS/typographic placeholder)';
+    if (a.temp === true) { out.push({ id: a.id, file: fileText, replace_with }); continue; }
+    const missing = variants ? variants.filter(([, v]) => !v.file).map(([k]) => k) : a.file ? [] : ['file'];
+    if (missing.length) out.push({ id: a.id, file: `"temp": false but no photo (${missing.join(', ')})`, replace_with });
+    else if (a.alt_todo) out.push({ id: a.id, file: `alt text to fix: ${a.alt_todo}`, replace_with });
+  }
+  return out;
+}
+
+/**
+ * Owner override (Ian, with Katy's go-live, 25 Nov 2026): asset-manifest.json "launch_temp_photos_approved"
+ * { by, date, why } lets a launch build ship the interim images. All three fields are required, so the gate
+ * can't be switched off by accident; photo-intake.mjs and the staging checks still list every temp slot.
+ * @param {{ launch_temp_photos_approved?: { by?: string, date?: string, why?: string } }} manifest
+ */
+export function tempPhotosApproved(manifest) {
+  const a = manifest.launch_temp_photos_approved;
+  return !!(a && a.by && /^\d{4}-\d{2}-\d{2}$/.test(a.date || '') && a.why);
 }
 
 /**
@@ -60,11 +83,16 @@ export function assertLaunchAssets(mode, manifest) {
   if (!mode.launch) return;
   const temp = tempAssets(manifest);
   if (!temp.length) return;
+  if (tempPhotosApproved(manifest)) {
+    const a = manifest.launch_temp_photos_approved;
+    console.warn(`[launch] ${temp.length} interim image slot(s) shipping under the owner's recorded approval (${a.by}, ${a.date}): ${temp.map((t) => t.id).join(', ')}. Replace them, then remove launch_temp_photos_approved.`);
+    return;
+  }
   const lines = temp.map((a) => `  - ${a.id.padEnd(20)} ${a.file}  → replace with: ${a.replace_with}`);
   throw new Error(
-    `LAUNCH BLOCKED: ${temp.length} image slot(s) in src/data/asset-manifest.json are still temp:true.\n` +
+    `LAUNCH BLOCKED: ${temp.length} image slot(s) in src/data/asset-manifest.json are not launch-ready (temp:true, no photo, or alt to fix).\n` +
     `A launch build (site.json "launch": true or LAUNCH=1) may not ship interim images. Replace each with its shoot ` +
-    `photo, set "temp": false, and delete the TEMP file:\n${lines.join('\n')}\n` +
+    `photo, set "temp": false, fix its alt (remove any "alt_todo"), and delete the TEMP file:\n${lines.join('\n')}\n` +
     `(Staging and PREVIEW=1 builds are not affected.)`,
   );
 }
